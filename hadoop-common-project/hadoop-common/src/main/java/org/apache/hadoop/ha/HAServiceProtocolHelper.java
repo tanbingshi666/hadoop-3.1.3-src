@@ -45,6 +45,7 @@ public class HAServiceProtocolHelper {
       StateChangeRequestInfo reqInfo)
       throws IOException {
     try {
+      // 调用 NameNodeRpcServer 的 transitionToActive()
       svc.transitionToActive(reqInfo);
     } catch (RemoteException e) {
       throw e.unwrapRemoteException(ServiceFailedException.class);

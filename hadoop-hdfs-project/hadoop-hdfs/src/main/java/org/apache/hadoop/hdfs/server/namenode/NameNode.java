@@ -1715,6 +1715,7 @@ public class NameNode extends ReconfigurableBase implements
         conf.set(DFS_NAMESERVICE_ID, nameserviceId);
       }
       if (namenodeId != null) {
+        // 设置 key = dfs.ha.namenode.id value = nn1
         conf.set(DFS_HA_NAMENODE_ID_KEY, namenodeId);
       }
       

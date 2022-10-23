@@ -83,8 +83,10 @@ public class HAUtil {
    * @return true if HA is configured in the configuration; else false.
    */
   public static boolean isHAEnabled(Configuration conf, String nsId) {
+    // 从 Configuration (加载了四大文件配置) 解析 NameNode 的 ip + port
     Map<String, Map<String, InetSocketAddress>> addresses =
         DFSUtilClient.getHaNnRpcAddresses(conf);
+
     if (addresses == null) return false;
     Map<String, InetSocketAddress> nnMap = addresses.get(nsId);
     return nnMap != null && nnMap.size() > 1;

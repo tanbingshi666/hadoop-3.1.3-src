@@ -85,6 +85,7 @@ public class NodeFencer {
     if (confStr == null) {
       return null;
     }
+    // 创建 NodeFencer
     return new NodeFencer(conf, confStr);
   }
 

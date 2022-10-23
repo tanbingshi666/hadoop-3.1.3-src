@@ -114,12 +114,14 @@ public class NetUtils {
    */
   public static SocketFactory getDefaultSocketFactory(Configuration conf) {
 
+    // 默认 org.apache.hadoop.net.StandardSocketFactory
     String propValue = conf.get(
         CommonConfigurationKeysPublic.HADOOP_RPC_SOCKET_FACTORY_CLASS_DEFAULT_KEY,
         CommonConfigurationKeysPublic.HADOOP_RPC_SOCKET_FACTORY_CLASS_DEFAULT_DEFAULT);
     if ((propValue == null) || (propValue.length() == 0))
       return SocketFactory.getDefault();
 
+    // 通过反射创建 StandardSocketFactory
     return getSocketFactoryFromProperty(conf, propValue);
   }
 

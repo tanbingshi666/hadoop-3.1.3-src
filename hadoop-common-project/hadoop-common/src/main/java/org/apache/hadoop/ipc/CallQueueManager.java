@@ -74,13 +74,21 @@ public class CallQueueManager<E extends Schedulable>
       boolean clientBackOffEnabled, int maxQueueSize, String namespace,
       Configuration conf) {
     int priorityLevels = parseNumLevels(namespace, conf);
+
+    // 初始化 DefaultRpcScheduler 调用该类存放 (priorityLevels, namespace, conf) 入参的构造函数
     this.scheduler = createScheduler(schedulerClass, priorityLevels,
         namespace, conf);
+
+    // 初始化 LinkedBlockingQueue
     BlockingQueue<E> bq = createCallQueueInstance(backingClass,
         priorityLevels, maxQueueSize, namespace, conf);
+
+    // 默认 false
     this.clientBackOffEnabled = clientBackOffEnabled;
+
     this.putRef = new AtomicReference<BlockingQueue<E>>(bq);
     this.takeRef = new AtomicReference<BlockingQueue<E>>(bq);
+
     LOG.info("Using callQueue: " + backingClass + " queueCapacity: " +
         maxQueueSize + " scheduler: " + schedulerClass);
   }

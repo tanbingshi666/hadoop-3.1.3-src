@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -61,265 +61,272 @@ import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_JOURNALNODE_RPC_BIND_HOST
 @InterfaceAudience.Private
 @VisibleForTesting
 public class JournalNodeRpcServer implements QJournalProtocol,
-    InterQJournalProtocol {
-  private static final Log LOG = JournalNode.LOG;
-  private static final int HANDLER_COUNT = 5;
-  private final JournalNode jn;
-  private Server server;
+        InterQJournalProtocol {
+    private static final Log LOG = JournalNode.LOG;
+    private static final int HANDLER_COUNT = 5;
+    private final JournalNode jn;
+    private Server server;
 
-  JournalNodeRpcServer(Configuration conf, JournalNode jn) throws IOException {
-    this.jn = jn;
-    
-    Configuration confCopy = new Configuration(conf);
-    
-    // Ensure that nagling doesn't kick in, which could cause latency issues.
-    confCopy.setBoolean(
-        CommonConfigurationKeysPublic.IPC_SERVER_TCPNODELAY_KEY,
-        true);
-    
-    InetSocketAddress addr = getAddress(confCopy);
-    String bindHost = conf.getTrimmed(DFS_JOURNALNODE_RPC_BIND_HOST_KEY, null);
-    if (bindHost == null) {
-      bindHost = addr.getHostName();
+    JournalNodeRpcServer(Configuration conf, JournalNode jn) throws IOException {
+        this.jn = jn;
+
+        Configuration confCopy = new Configuration(conf);
+
+        // Ensure that nagling doesn't kick in, which could cause latency issues.
+        confCopy.setBoolean(
+                CommonConfigurationKeysPublic.IPC_SERVER_TCPNODELAY_KEY,
+                true);
+
+        // 默认 0.0.0.0:8485
+        InetSocketAddress addr = getAddress(confCopy);
+        String bindHost = conf.getTrimmed(DFS_JOURNALNODE_RPC_BIND_HOST_KEY, null);
+        if (bindHost == null) {
+            bindHost = addr.getHostName();
+        }
+        LOG.info("RPC server is binding to " + bindHost + ":" + addr.getPort());
+
+        // 往 confCopy 添加一个 key = rpc.engine.org.apache.hadoop.hdfs.qjournal.protocolPB.QJournalProtocolPB value = org.apache.hadoop.ipc.ProtobufRpcEngine
+        RPC.setProtocolEngine(confCopy, QJournalProtocolPB.class,
+                ProtobufRpcEngine.class);
+
+        QJournalProtocolServerSideTranslatorPB translator =
+                new QJournalProtocolServerSideTranslatorPB(this);
+
+        BlockingService service = QJournalProtocolService
+                .newReflectiveBlockingService(translator);
+
+        // 构建 RPC (里面完成 RPC 的初始化)
+        this.server = new RPC.Builder(confCopy)
+                .setProtocol(QJournalProtocolPB.class)
+                .setInstance(service)
+                .setBindAddress(bindHost)
+                .setPort(addr.getPort())
+                .setNumHandlers(HANDLER_COUNT)
+                .setVerbose(false)
+                .build();
+
+
+        //Adding InterQJournalProtocolPB to server
+        InterQJournalProtocolServerSideTranslatorPB
+                qJournalProtocolServerSideTranslatorPB = new
+                InterQJournalProtocolServerSideTranslatorPB(this);
+
+        BlockingService interQJournalProtocolService = InterQJournalProtocolService
+                .newReflectiveBlockingService(qJournalProtocolServerSideTranslatorPB);
+
+        DFSUtil.addPBProtocol(confCopy, InterQJournalProtocolPB.class,
+                interQJournalProtocolService, server);
+
+
+        // set service-level authorization security policy
+        if (confCopy.getBoolean(
+                CommonConfigurationKeys.HADOOP_SECURITY_AUTHORIZATION, false)) {
+            server.refreshServiceAcl(confCopy, new HDFSPolicyProvider());
+        }
+
+        this.server.setTracer(jn.tracer);
     }
-    LOG.info("RPC server is binding to " + bindHost + ":" + addr.getPort());
 
-    RPC.setProtocolEngine(confCopy, QJournalProtocolPB.class,
-        ProtobufRpcEngine.class);
-    QJournalProtocolServerSideTranslatorPB translator =
-        new QJournalProtocolServerSideTranslatorPB(this);
-    BlockingService service = QJournalProtocolService
-        .newReflectiveBlockingService(translator);
-    
-    this.server = new RPC.Builder(confCopy)
-        .setProtocol(QJournalProtocolPB.class)
-        .setInstance(service)
-        .setBindAddress(bindHost)
-        .setPort(addr.getPort())
-        .setNumHandlers(HANDLER_COUNT)
-        .setVerbose(false)
-        .build();
-
-
-    //Adding InterQJournalProtocolPB to server
-    InterQJournalProtocolServerSideTranslatorPB
-        qJournalProtocolServerSideTranslatorPB = new
-        InterQJournalProtocolServerSideTranslatorPB(this);
-
-    BlockingService interQJournalProtocolService = InterQJournalProtocolService
-        .newReflectiveBlockingService(qJournalProtocolServerSideTranslatorPB);
-
-    DFSUtil.addPBProtocol(confCopy, InterQJournalProtocolPB.class,
-        interQJournalProtocolService, server);
-
-
-    // set service-level authorization security policy
-    if (confCopy.getBoolean(
-      CommonConfigurationKeys.HADOOP_SECURITY_AUTHORIZATION, false)) {
-          server.refreshServiceAcl(confCopy, new HDFSPolicyProvider());
+    void start() {
+        // 启动 Server
+        this.server.start();
     }
-    this.server.setTracer(jn.tracer);
-  }
 
-  void start() {
-    this.server.start();
-  }
+    public InetSocketAddress getAddress() {
+        return server.getListenerAddress();
+    }
 
-  public InetSocketAddress getAddress() {
-    return server.getListenerAddress();
-  }
-  
-  void join() throws InterruptedException {
-    this.server.join();
-  }
-  
-  void stop() {
-    this.server.stop();
-  }
-  
-  static InetSocketAddress getAddress(Configuration conf) {
-    String addr = conf.get(
-        DFSConfigKeys.DFS_JOURNALNODE_RPC_ADDRESS_KEY,
-        DFSConfigKeys.DFS_JOURNALNODE_RPC_ADDRESS_DEFAULT);
-    return NetUtils.createSocketAddr(addr, 0,
-        DFSConfigKeys.DFS_JOURNALNODE_RPC_ADDRESS_KEY);
-  }
+    void join() throws InterruptedException {
+        this.server.join();
+    }
 
-  @Override
-  public boolean isFormatted(String journalId,
-                             String nameServiceId) throws IOException {
-    return jn.getOrCreateJournal(journalId, nameServiceId).isFormatted();
-  }
+    void stop() {
+        this.server.stop();
+    }
 
-  @SuppressWarnings("deprecation")
-  @Override
-  public GetJournalStateResponseProto getJournalState(String journalId,
-                                                      String nameServiceId)
-        throws IOException {
-    long epoch = jn.getOrCreateJournal(journalId,
-        nameServiceId).getLastPromisedEpoch();
-    return GetJournalStateResponseProto.newBuilder()
-        .setLastPromisedEpoch(epoch)
-        .setHttpPort(jn.getBoundHttpAddress().getPort())
-        .setFromURL(jn.getHttpServerURI())
-        .build();
-  }
+    static InetSocketAddress getAddress(Configuration conf) {
+        String addr = conf.get(
+                DFSConfigKeys.DFS_JOURNALNODE_RPC_ADDRESS_KEY,
+                DFSConfigKeys.DFS_JOURNALNODE_RPC_ADDRESS_DEFAULT);
+        return NetUtils.createSocketAddr(addr, 0,
+                DFSConfigKeys.DFS_JOURNALNODE_RPC_ADDRESS_KEY);
+    }
 
-  @Override
-  public NewEpochResponseProto newEpoch(String journalId,
-                                        String nameServiceId,
-                                        NamespaceInfo nsInfo,
-      long epoch) throws IOException {
-    return jn.getOrCreateJournal(journalId,
-        nameServiceId).newEpoch(nsInfo, epoch);
-  }
+    @Override
+    public boolean isFormatted(String journalId,
+                               String nameServiceId) throws IOException {
+        return jn.getOrCreateJournal(journalId, nameServiceId).isFormatted();
+    }
 
-  @Override
-  public void format(String journalId,
-                     String nameServiceId,
-                     NamespaceInfo nsInfo)
-      throws IOException {
-    jn.getOrCreateJournal(journalId, nameServiceId).format(nsInfo);
-  }
+    @SuppressWarnings("deprecation")
+    @Override
+    public GetJournalStateResponseProto getJournalState(String journalId,
+                                                        String nameServiceId)
+            throws IOException {
+        long epoch = jn.getOrCreateJournal(journalId,
+                nameServiceId).getLastPromisedEpoch();
+        return GetJournalStateResponseProto.newBuilder()
+                .setLastPromisedEpoch(epoch)
+                .setHttpPort(jn.getBoundHttpAddress().getPort())
+                .setFromURL(jn.getHttpServerURI())
+                .build();
+    }
 
-  @Override
-  public void journal(RequestInfo reqInfo,
-      long segmentTxId, long firstTxnId,
-      int numTxns, byte[] records) throws IOException {
-    jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
-       .journal(reqInfo, segmentTxId, firstTxnId, numTxns, records);
-  }
-  
-  @Override
-  public void heartbeat(RequestInfo reqInfo) throws IOException {
-    jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
-      .heartbeat(reqInfo);
-  }
+    @Override
+    public NewEpochResponseProto newEpoch(String journalId,
+                                          String nameServiceId,
+                                          NamespaceInfo nsInfo,
+                                          long epoch) throws IOException {
+        return jn.getOrCreateJournal(journalId,
+                nameServiceId).newEpoch(nsInfo, epoch);
+    }
 
-  @Override
-  public void startLogSegment(RequestInfo reqInfo, long txid, int layoutVersion)
-      throws IOException {
-    jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
-      .startLogSegment(reqInfo, txid, layoutVersion);
-  }
+    @Override
+    public void format(String journalId,
+                       String nameServiceId,
+                       NamespaceInfo nsInfo)
+            throws IOException {
+        jn.getOrCreateJournal(journalId, nameServiceId).format(nsInfo);
+    }
 
-  @Override
-  public void finalizeLogSegment(RequestInfo reqInfo, long startTxId,
-      long endTxId) throws IOException {
-    jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
-      .finalizeLogSegment(reqInfo, startTxId, endTxId);
-  }
+    @Override
+    public void journal(RequestInfo reqInfo,
+                        long segmentTxId, long firstTxnId,
+                        int numTxns, byte[] records) throws IOException {
+        jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
+                .journal(reqInfo, segmentTxId, firstTxnId, numTxns, records);
+    }
 
-  @Override
-  public void purgeLogsOlderThan(RequestInfo reqInfo, long minTxIdToKeep)
-      throws IOException {
-    jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
-      .purgeLogsOlderThan(reqInfo, minTxIdToKeep);
-  }
+    @Override
+    public void heartbeat(RequestInfo reqInfo) throws IOException {
+        jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
+                .heartbeat(reqInfo);
+    }
 
-  @SuppressWarnings("deprecation")
-  @Override
-  public GetEditLogManifestResponseProto getEditLogManifest(
-      String jid, String nameServiceId,
-      long sinceTxId, boolean inProgressOk)
-      throws IOException {
-    
-    RemoteEditLogManifest manifest = jn.getOrCreateJournal(jid, nameServiceId)
-        .getEditLogManifest(sinceTxId, inProgressOk);
-    
-    return GetEditLogManifestResponseProto.newBuilder()
-        .setManifest(PBHelper.convert(manifest))
-        .setHttpPort(jn.getBoundHttpAddress().getPort())
-        .setFromURL(jn.getHttpServerURI())
-        .build();
-  }
+    @Override
+    public void startLogSegment(RequestInfo reqInfo, long txid, int layoutVersion)
+            throws IOException {
+        jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
+                .startLogSegment(reqInfo, txid, layoutVersion);
+    }
 
-  @Override
-  public GetJournaledEditsResponseProto getJournaledEdits(String jid,
-      String nameServiceId, long sinceTxId, int maxTxns) throws IOException {
-    return jn.getOrCreateJournal(jid, nameServiceId)
-        .getJournaledEdits(sinceTxId, maxTxns);
-  }
+    @Override
+    public void finalizeLogSegment(RequestInfo reqInfo, long startTxId,
+                                   long endTxId) throws IOException {
+        jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
+                .finalizeLogSegment(reqInfo, startTxId, endTxId);
+    }
 
-  @Override
-  public PrepareRecoveryResponseProto prepareRecovery(RequestInfo reqInfo,
-      long segmentTxId) throws IOException {
-    return jn.getOrCreateJournal(reqInfo.getJournalId(),
-        reqInfo.getNameServiceId())
-        .prepareRecovery(reqInfo, segmentTxId);
-  }
+    @Override
+    public void purgeLogsOlderThan(RequestInfo reqInfo, long minTxIdToKeep)
+            throws IOException {
+        jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
+                .purgeLogsOlderThan(reqInfo, minTxIdToKeep);
+    }
 
-  @Override
-  public void acceptRecovery(RequestInfo reqInfo, SegmentStateProto log,
-      URL fromUrl) throws IOException {
-    jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
-        .acceptRecovery(reqInfo, log, fromUrl);
-  }
+    @SuppressWarnings("deprecation")
+    @Override
+    public GetEditLogManifestResponseProto getEditLogManifest(
+            String jid, String nameServiceId,
+            long sinceTxId, boolean inProgressOk)
+            throws IOException {
 
-  @Override
-  public void doPreUpgrade(String journalId) throws IOException {
-    jn.doPreUpgrade(journalId);
-  }
+        RemoteEditLogManifest manifest = jn.getOrCreateJournal(jid, nameServiceId)
+                .getEditLogManifest(sinceTxId, inProgressOk);
 
-  @Override
-  public void doUpgrade(String journalId, StorageInfo sInfo) throws IOException {
-    jn.doUpgrade(journalId, sInfo);
-  }
+        return GetEditLogManifestResponseProto.newBuilder()
+                .setManifest(PBHelper.convert(manifest))
+                .setHttpPort(jn.getBoundHttpAddress().getPort())
+                .setFromURL(jn.getHttpServerURI())
+                .build();
+    }
 
-  @Override
-  public void doFinalize(String journalId,
-                         String nameServiceId) throws IOException {
-    jn.doFinalize(journalId, nameServiceId);
-  }
+    @Override
+    public GetJournaledEditsResponseProto getJournaledEdits(String jid,
+                                                            String nameServiceId, long sinceTxId, int maxTxns) throws IOException {
+        return jn.getOrCreateJournal(jid, nameServiceId)
+                .getJournaledEdits(sinceTxId, maxTxns);
+    }
 
-  @Override
-  public Boolean canRollBack(String journalId,
-                             String nameServiceId, StorageInfo storage,
-      StorageInfo prevStorage, int targetLayoutVersion)
-      throws IOException {
-    return jn.canRollBack(journalId, storage, prevStorage, targetLayoutVersion,
-        nameServiceId);
-  }
+    @Override
+    public PrepareRecoveryResponseProto prepareRecovery(RequestInfo reqInfo,
+                                                        long segmentTxId) throws IOException {
+        return jn.getOrCreateJournal(reqInfo.getJournalId(),
+                        reqInfo.getNameServiceId())
+                .prepareRecovery(reqInfo, segmentTxId);
+    }
 
-  @Override
-  public void doRollback(String journalId,
-                         String nameServiceId) throws IOException {
-    jn.doRollback(journalId, nameServiceId);
-  }
+    @Override
+    public void acceptRecovery(RequestInfo reqInfo, SegmentStateProto log,
+                               URL fromUrl) throws IOException {
+        jn.getOrCreateJournal(reqInfo.getJournalId(), reqInfo.getNameServiceId())
+                .acceptRecovery(reqInfo, log, fromUrl);
+    }
 
-  @Override
-  public void discardSegments(String journalId,
-                              String nameServiceId, long startTxId)
-      throws IOException {
-    jn.discardSegments(journalId, startTxId, nameServiceId);
-  }
+    @Override
+    public void doPreUpgrade(String journalId) throws IOException {
+        jn.doPreUpgrade(journalId);
+    }
 
-  @Override
-  public Long getJournalCTime(String journalId,
-                              String nameServiceId) throws IOException {
-    return jn.getJournalCTime(journalId, nameServiceId);
-  }
+    @Override
+    public void doUpgrade(String journalId, StorageInfo sInfo) throws IOException {
+        jn.doUpgrade(journalId, sInfo);
+    }
 
-  @SuppressWarnings("deprecation")
-  @Override
-  public GetEditLogManifestResponseProto getEditLogManifestFromJournal(
-      String jid, String nameServiceId,
-      long sinceTxId, boolean inProgressOk)
-      throws IOException {
+    @Override
+    public void doFinalize(String journalId,
+                           String nameServiceId) throws IOException {
+        jn.doFinalize(journalId, nameServiceId);
+    }
 
-    RemoteEditLogManifest manifest = jn.getOrCreateJournal(jid, nameServiceId)
-        .getEditLogManifest(sinceTxId, inProgressOk);
+    @Override
+    public Boolean canRollBack(String journalId,
+                               String nameServiceId, StorageInfo storage,
+                               StorageInfo prevStorage, int targetLayoutVersion)
+            throws IOException {
+        return jn.canRollBack(journalId, storage, prevStorage, targetLayoutVersion,
+                nameServiceId);
+    }
 
-    return GetEditLogManifestResponseProto.newBuilder()
-        .setManifest(PBHelper.convert(manifest))
-        .setHttpPort(jn.getBoundHttpAddress().getPort())
-        .setFromURL(jn.getHttpServerURI())
-        .build();
-  }
+    @Override
+    public void doRollback(String journalId,
+                           String nameServiceId) throws IOException {
+        jn.doRollback(journalId, nameServiceId);
+    }
 
-  /** Allow access to the RPC server for testing. */
-  @VisibleForTesting
-  Server getRpcServer() {
-    return server;
-  }
+    @Override
+    public void discardSegments(String journalId,
+                                String nameServiceId, long startTxId)
+            throws IOException {
+        jn.discardSegments(journalId, startTxId, nameServiceId);
+    }
+
+    @Override
+    public Long getJournalCTime(String journalId,
+                                String nameServiceId) throws IOException {
+        return jn.getJournalCTime(journalId, nameServiceId);
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public GetEditLogManifestResponseProto getEditLogManifestFromJournal(
+            String jid, String nameServiceId,
+            long sinceTxId, boolean inProgressOk)
+            throws IOException {
+
+        RemoteEditLogManifest manifest = jn.getOrCreateJournal(jid, nameServiceId)
+                .getEditLogManifest(sinceTxId, inProgressOk);
+
+        return GetEditLogManifestResponseProto.newBuilder()
+                .setManifest(PBHelper.convert(manifest))
+                .setHttpPort(jn.getBoundHttpAddress().getPort())
+                .setFromURL(jn.getHttpServerURI())
+                .build();
+    }
+
+    /** Allow access to the RPC server for testing. */
+    @VisibleForTesting
+    Server getRpcServer() {
+        return server;
+    }
 }

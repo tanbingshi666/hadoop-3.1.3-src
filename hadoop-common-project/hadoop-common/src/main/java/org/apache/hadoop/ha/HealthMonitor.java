@@ -127,7 +127,8 @@ public class HealthMonitor {
     this.rpcTimeout = conf.getInt(
         HA_HM_RPC_TIMEOUT_KEY,
         HA_HM_RPC_TIMEOUT_DEFAULT);
-    
+
+    // 创建 MonitorDaemon
     this.daemon = new MonitorDaemon();
   }
   
@@ -164,12 +165,13 @@ public class HealthMonitor {
   }
   
   private void loopUntilConnected() throws InterruptedException {
+    // 连接本地 NameNode, 判断本地的 NameNode 是否启动
+    // 如果 NameNode 没有启动, 故拿不到其代理客户端, 那么每隔 1000ms 进行重试, 直到成功为止
     tryConnect();
     while (proxy == null) {
       Thread.sleep(connectRetryInterval);
       tryConnect();
     }
-    assert proxy != null;
   }
 
   private void tryConnect() {
@@ -177,6 +179,7 @@ public class HealthMonitor {
     
     try {
       synchronized (this) {
+        // 获取本地 NameNode 的代理客户端
         proxy = createProxy();
       }
     } catch (IOException e) {
@@ -191,6 +194,7 @@ public class HealthMonitor {
    * Connect to the service to be monitored. Stubbed out for easier testing.
    */
   protected HAServiceProtocol createProxy() throws IOException {
+    // 获取本地 NameNode 代理客户端
     return targetToMonitor.getHealthMonitorProxy(conf, rpcTimeout);
   }
 
@@ -199,7 +203,10 @@ public class HealthMonitor {
       HAServiceStatus status = null;
       boolean healthy = false;
       try {
+        // 获取 NameNode 状态
         status = proxy.getServiceStatus();
+
+        // 获取 NameNode 健康信息
         proxy.monitorHealth();
         healthy = true;
       } catch (Throwable t) {
@@ -218,9 +225,11 @@ public class HealthMonitor {
       }
       
       if (status != null) {
+        // 拉取到 NameNode 的状态, 通知 ServiceStateCallBacks
         setLastServiceStatus(status);
       }
       if (healthy) {
+        // 里面将会回调 HealthCallbacks, 然后进行本地 NameNode 的 HA 选举
         enterState(State.SERVICE_HEALTHY);
       }
 
@@ -272,6 +281,7 @@ public class HealthMonitor {
   }
 
   void start() {
+    // 调用 MonitorDaemon 的 run()
     daemon.start();
   }
 
@@ -291,8 +301,11 @@ public class HealthMonitor {
     @Override
     public void run() {
       while (shouldRun) {
-        try { 
+        try {
+          // 连接本地的 NameNode
           loopUntilConnected();
+
+          // 检查本地 NameNode 健康状态
           doHealthChecks();
         } catch (InterruptedException ie) {
           Preconditions.checkState(!shouldRun,

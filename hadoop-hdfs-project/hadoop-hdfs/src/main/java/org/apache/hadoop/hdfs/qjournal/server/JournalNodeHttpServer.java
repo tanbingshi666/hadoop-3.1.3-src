@@ -58,6 +58,7 @@ public class JournalNodeHttpServer {
   void start() throws IOException {
     final InetSocketAddress httpAddr = bindAddress;
 
+    // 默认 0.0.0.0:8481
     final String httpsAddrString = conf.get(
         DFSConfigKeys.DFS_JOURNALNODE_HTTPS_ADDRESS_KEY,
         DFSConfigKeys.DFS_JOURNALNODE_HTTPS_ADDRESS_DEFAULT);
@@ -66,6 +67,7 @@ public class JournalNodeHttpServer {
     if (httpsAddr != null) {
       // If DFS_JOURNALNODE_HTTPS_BIND_HOST_KEY exists then it overrides the
       // host name portion of DFS_NAMENODE_HTTPS_ADDRESS_KEY.
+      // 默认为 null
       final String bindHost =
           conf.getTrimmed(DFSConfigKeys.DFS_JOURNALNODE_HTTPS_BIND_HOST_KEY);
       if (bindHost != null && !bindHost.isEmpty()) {
@@ -73,6 +75,7 @@ public class JournalNodeHttpServer {
       }
     }
 
+    // 构建 HttpServer2
     HttpServer2.Builder builder = DFSUtil.httpServerTemplateForNNAndJN(conf,
         httpAddr, httpsAddr, "journal",
         DFSConfigKeys.DFS_JOURNALNODE_KERBEROS_INTERNAL_SPNEGO_PRINCIPAL_KEY,
@@ -81,8 +84,10 @@ public class JournalNodeHttpServer {
     httpServer = builder.build();
     httpServer.setAttribute(JN_ATTRIBUTE_KEY, localJournalNode);
     httpServer.setAttribute(JspHelper.CURRENT_CONF, conf);
+    // JournalNodeHttpService 里面有个 HttpServer2, 该 HttpServer 里面有一个核心的 Servlet, 该 Servlet 核心方法 doGet()
     httpServer.addInternalServlet("getJournal", "/getJournal",
         GetJournalEditServlet.class, true);
+    // 启动 HttpServer2
     httpServer.start();
 
     HttpConfig.Policy policy = DFSUtil.getHttpPolicy(conf);

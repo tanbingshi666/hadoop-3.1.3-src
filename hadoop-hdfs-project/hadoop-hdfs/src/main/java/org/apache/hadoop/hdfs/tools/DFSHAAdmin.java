@@ -67,7 +67,10 @@ public class DFSHAAdmin extends HAAdmin {
   public static Configuration addSecurityConfiguration(Configuration conf) {
     // Make a copy so we don't mutate it. Also use an HdfsConfiguration to
     // force loading of hdfs-site.xml.
+    // 加载解析四大文件
     conf = new HdfsConfiguration(conf);
+
+    // 默认空
     String nameNodePrincipal = conf.get(
         DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, "");
     if (LOG.isDebugEnabled()) {

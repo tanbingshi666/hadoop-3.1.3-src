@@ -821,6 +821,7 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
       // Make sure we clone a finalized state
       // Resources like input streams can be processed only once
       other.getProps();
+
       this.resources = (ArrayList<Resource>) other.resources.clone();
       if (other.properties != null) {
         this.properties = (Properties)other.properties.clone();
@@ -1197,6 +1198,7 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
     String[] names = handleDeprecation(deprecationContext.get(), name);
     String result = null;
     for(String n : names) {
+      // 加载 core-default.xml core-site.xml hdfs-default.xml hdfs-site.xml 文件
       result = substituteVars(getProps().getProperty(n));
     }
     return result;
@@ -2258,6 +2260,7 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
    * @return property value as a collection of <code>String</code>s, or empty <code>Collection</code> 
    */
   public Collection<String> getTrimmedStringCollection(String name) {
+    // 加载四大文件, 从 properties 对象根据 name 获取对应的值
     String valueString = get(name);
     if (null == valueString) {
       Collection<String> empty = new ArrayList<String>();
@@ -2840,11 +2843,16 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
     return setFinalParams;
   }
 
+  /**
+   * 默认加载 classpath 路径下的 core-default.xml core-site.xml hdfs-default.xml hdfs-site.xml
+   * 将加载的 key/value 缓存在 properties 对象
+   */
   protected synchronized Properties getProps() {
     if (properties == null) {
       properties = new Properties();
       Map<String, String[]> backup = updatingResource != null ?
           new ConcurrentHashMap<String, String[]>(updatingResource) : null;
+      // 加载解析四大文件
       loadResources(properties, resources, quietmode);
 
       if (overlay != null) {

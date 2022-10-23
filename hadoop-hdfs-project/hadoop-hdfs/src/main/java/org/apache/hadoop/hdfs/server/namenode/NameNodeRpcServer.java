@@ -1750,7 +1750,10 @@ public class NameNodeRpcServer implements NamenodeProtocols {
   @Override // HAServiceProtocol
   public synchronized void monitorHealth() throws HealthCheckFailedException,
       AccessControlException, IOException {
+    // 检查 NameNode 是否启动
     checkNNStartup();
+
+    // NameNode 自检
     nn.monitorHealth();
   }
   
@@ -1781,7 +1784,10 @@ public class NameNodeRpcServer implements NamenodeProtocols {
   @Override // HAServiceProtocol
   public synchronized HAServiceStatus getServiceStatus() 
       throws AccessControlException, ServiceFailedException, IOException {
+    // 检查 NameNode 是否启动了
     checkNNStartup();
+
+    // 获取 NameNode 的状态并返回给 ZKFC
     return nn.getServiceStatus();
   }
 

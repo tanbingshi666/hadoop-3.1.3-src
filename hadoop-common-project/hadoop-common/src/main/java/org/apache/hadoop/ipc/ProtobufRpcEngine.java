@@ -344,6 +344,7 @@ public class ProtobufRpcEngine implements RpcEngine {
       SecretManager<? extends TokenIdentifier> secretManager,
       String portRangeConfig, AlignmentContext alignmentContext)
       throws IOException {
+    // 创建 Server
     return new Server(protocol, protocolImpl, conf, bindAddress, port,
         numHandlers, numReaders, queueSizePerHandler, verbose, secretManager,
         portRangeConfig, alignmentContext);
@@ -423,11 +424,14 @@ public class ProtobufRpcEngine implements RpcEngine {
         SecretManager<? extends TokenIdentifier> secretManager, 
         String portRangeConfig, AlignmentContext alignmentContext)
         throws IOException {
+      // 调用父类 (初始化三种线程类型)
       super(bindAddress, port, null, numHandlers,
           numReaders, queueSizePerHandler, conf, classNameBase(protocolImpl
               .getClass().getName()), secretManager, portRangeConfig);
+
       setAlignmentContext(alignmentContext);
-      this.verbose = verbose;  
+      this.verbose = verbose;
+
       registerProtocolAndImpl(RPC.RpcKind.RPC_PROTOCOL_BUFFER, protocolClass,
           protocolImpl);
     }
@@ -524,7 +528,10 @@ public class ProtobufRpcEngine implements RpcEngine {
           server.rpcDetailedMetrics.init(protocolImpl.protocolClass);
           currentCallInfo.set(new CallInfo(server, methodName));
           currentCall.setDetailedMetricsName(methodName);
+
+          // 调用 RPC 方法执行处理
           result = service.callBlockingMethod(methodDescriptor, null, param);
+
           // Check if this needs to be a deferred response,
           // by checking the ThreadLocal callback being set
           if (currentCallback.get() != null) {
@@ -543,6 +550,8 @@ public class ProtobufRpcEngine implements RpcEngine {
         } finally {
           currentCallInfo.set(null);
         }
+
+        // 处理返回结果
         return RpcWritable.wrap(result);
       }
     }
